@@ -25,7 +25,7 @@ before_script:
 
 script:
    - sh -n *.sh
-   - shellcheck -e SC2009,SC2086,SC2153,SC2016,SC1004 *.sh
+   - shellcheck -e SC2009,SC2086,SC2153,SC2016,SC1004,SC2119 *.sh
 
 # after_success:
 # after_failure:

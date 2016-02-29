@@ -9,14 +9,7 @@ export JAIL_CONF_EXTRA="
 
 HARAKA_CONF="$STAGE_MNT/usr/local/haraka/config"
 
-install_haraka()
-{
-	tell_status "installing node & npm"
-	stage_pkg_install node npm gmake || exit
-
-	tell_status "installing Haraka"
-	stage_exec npm install -g Haraka ws express || exit
-
+haraka_github_updates() {
 	tell_status "updating files from GitHub repo"
 	local _ghi="$STAGE_MNT/usr/local/lib/node_modules/Haraka"
 	local _ghu='https://raw.githubusercontent.com/haraka/Haraka/master'
@@ -29,6 +22,17 @@ install_haraka()
 	done
 }
 
+install_haraka()
+{
+	tell_status "installing node & npm"
+	stage_pkg_install node npm gmake || exit
+
+	tell_status "installing Haraka"
+	stage_exec npm install -g Haraka@2.8.0-alpha.5 ws express || exit
+
+	#haraka_github_updates
+}
+
 install_geoip_dbs()
 {
 	if ! zfs_filesystem_exists "$ZFS_DATA_VOL/geoip"; then
@@ -37,10 +41,9 @@ install_geoip_dbs()
 	fi
 
 	tell_status "enabling Haraka geoip plugin"
-	mkdir -p "$STAGE_MNT/usr/local/share/GeoIP"
-	sed -i -e 's/^;calc_distance=false/calc_distance=true/' "$HARAKA_CONF/connect.geoip.ini"
 	sed -i -e 's/^# connect.geoip/connect.geoip/' "$HARAKA_CONF/plugins"
 
+	mkdir -p "$STAGE_MNT/usr/local/share/GeoIP"
 	JAIL_CONF_EXTRA="$JAIL_CONF_EXTRA
 		mount += \"$ZFS_DATA_MNT/geoip \$path/usr/local/share/GeoIP nullfs ro 0 0\";"
 }
@@ -89,16 +92,21 @@ config_haraka_syslog()
 	tell_status "switch Haraka logging to syslog"
 	sed -i -e 's/# log.syslog$/log.syslog/' "$HARAKA_CONF/plugins"
 	# sed -i -e 's/^daemon_log_file=.*/daemon_log_file=\/dev\/null/' "$HARAKA_CONF/smtp.ini"
-	sed -i -e 's/always_ok=false/always_ok=true/' "$HARAKA_CONF/log.syslog.ini"
+	# sed -i -e 's/always_ok=false/always_ok=true/' "$HARAKA_CONF/log.syslog.ini"
+	echo 'always_ok=true' | tee -a  "$HARAKA_CONF/log.syslog.ini"
 }
 
 config_haraka_vpopmail()
 {
-	tell_status "configure smtp forward to vpopmail jail"
-	sed -i .bak \
-		-e "s/^host=localhost/host=$(get_jail_ip vpopmail)/" \
-		-e 's/^port=2555/port=25/' \
-		"$HARAKA_CONF/smtp_forward.ini"
+	# tell_status "configure smtp forward to vpopmail jail"
+
+	# config_install_default smtp_forward.ini
+	# sed -i .bak \
+	# 	-e "s/^host=localhost/host=$(get_jail_ip vpopmail)/" \
+	# 	-e 's/^port=2555/port=25/' \
+	# 	"$HARAKA_CONF/smtp_forward.ini"
+	echo "host=$(get_jail_ip vpopmail)
+port=25" | tee -a "$HARAKA_CONF/smtp_forward.ini"
 
 	tell_status "config SMTP AUTH using vpopmaild"
 	echo "host=$(get_jail_ip vpopmail)" > "$HARAKA_CONF/auth_vpopmaild.ini"
@@ -112,6 +120,7 @@ auth\/auth_vpopmaild
 config_haraka_qmail_deliverable()
 {
 	tell_status "config recipient validation with Qmail::Deliverable"
+	config_install_default rcpt_to.qmail_deliverable.ini
 	sed -i -e "s/^host=127.0.0.1/host=$(get_jail_ip vpopmail)/" "$HARAKA_CONF/rcpt_to.qmail_deliverable.ini"
 	sed -i .bak \
 		-e 's/^#rcpt_to.qmail_deliverable/rcpt_to.qmail_deliverable/' \
@@ -135,14 +144,21 @@ config_haraka_spamassassin()
 	fi
 
 	tell_status "configuring Haraka spamassassin plugin"
-	sed -i.bak \
-		-e "/^spamd_socket/ s/127.0.0.1:/$(get_jail_ip spamassassin):/" \
-		-e 's/^;spamd_user=$/spamd_user=first-recipient/' \
-		-e '/^; reject_threshold/ s/^; //' \
-		-e 's/^; relay_reject_threshold$/relay_reject_threshold/' \
-		"$HARAKA_CONF/spamassassin.ini"
-
 	sed -i -e 's/^#spamassassin$/spamassassin/' "$HARAKA_CONF/plugins"
+
+	# sed -i.bak \
+	# 	-e "/^spamd_socket/ s/127.0.0.1:/$(get_jail_ip spamassassin):/" \
+	# 	-e 's/^;spamd_user=$/spamd_user=first-recipient/' \
+	# 	-e '/^; reject_threshold/ s/^; //' \
+	# 	-e 's/^; relay_reject_threshold$/relay_reject_threshold/' \
+	# 	"$HARAKA_CONF/spamassassin.ini"
+
+	echo "spamd_socket=$(get_jail_ip spamassassin):783
+spamd_user=first-recipient
+reject_threshold=10
+relay_reject_threshold=7
+" | tee -a "$HARAKA_CONF/spamassassin.ini"
+
 }
 
 config_haraka_avg()
@@ -158,10 +174,14 @@ config_haraka_avg()
 	JAIL_CONF_EXTRA="$JAIL_CONF_EXTRA
 		mount += \"$ZFS_DATA_MNT/avg \$path/data/avg nullfs rw 0 0\";"
 
-	sed -i .bak \
-		-e "s/;host.*/host = $(get_jail_ip avg)/" \
-		-e 's/;tmpdir.*/tmpdir=\/data\/avg/' \
-		"$HARAKA_CONF/avg.ini"
+	# sed -i .bak \
+	# 	-e "s/;host.*/host = $(get_jail_ip avg)/" \
+	# 	-e 's/;tmpdir.*/tmpdir=\/data\/avg/' \
+	# 	"$HARAKA_CONF/avg.ini"
+
+	echo "host = $(get_jail_ip avg)
+tmpdir=/data/avg
+" | tee -a "$HARAKA_CONF/avg.ini"
 
 	# shellcheck disable=1004
 	sed -i -e '/clamd$/a\
@@ -181,7 +201,7 @@ config_haraka_clamav()
 	sed -i -e 's/^#clamd$/clamd/' "$HARAKA_CONF/plugins"
 }
 
-config_haraka_tls() {	
+config_haraka_tls() {
 	tell_status "enable TLS encryption"
 	sed -i -e 's/^# tls$/tls/' "$HARAKA_CONF/plugins"
 	cp /etc/ssl/certs/server.crt "$HARAKA_CONF/tls_cert.pem"
@@ -206,18 +226,6 @@ xbl.spamhaus.org
 " | tee "$HARAKA_CONF/dnsbl.zones"
 }
 
-cleanup_deprecated_haraka()
-{
-	rm "$HARAKA_CONF/lookup_rdns.strict.ini"
-	rm "$HARAKA_CONF/lookup_rdns.strict.timeout"
-	rm "$HARAKA_CONF/lookup_rdns.strict.whitelist"
-	rm "$HARAKA_CONF/lookup_rdns.strict.whitelist_regex"
-	rm "$HARAKA_CONF/mail_from.access.blacklist_regex"
-	rm "$HARAKA_CONF/rcpt_to.blocklist"
-	rm "$HARAKA_CONF/rdns.allow_regexps"
-	rm "$HARAKA_CONF/rdns.deny_regexps"
-}
-
 config_haraka_rspamd()
 {
 	if [ ! -d "$ZFS_JAIL_MNT/rspamd" ]; then
@@ -226,10 +234,14 @@ config_haraka_rspamd()
 	fi
 
 	tell_status "configure Haraka rspamd plugin"
-	sed -i .bak \
-		-e "s/;host.*/host = $(get_jail_ip rspamd)/" \
-		-e 's/;always_add_headers = false/always_add_headers = true/' \
-		"$HARAKA_CONF/rspamd.ini" || exit
+	# sed -i .bak \
+	# 	-e "s/;host.*/host = $(get_jail_ip rspamd)/" \
+	# 	-e 's/;always_add_headers = false/always_add_headers = true/' \
+	# 	"$HARAKA_CONF/rspamd.ini" || exit
+
+	echo "host = $(get_jail_ip rspamd)
+always_add_headers = true
+" | tee -a "$HARAKA_CONF/rspamd.ini" || exit
 
 	# shellcheck disable=1004
 	sed -i -e '/spamassassin$/a\
@@ -274,6 +286,14 @@ config_haraka_plugins()
 		"$HARAKA_CONF/plugins"
 }
 
+config_install_default()
+{
+	local _source="$STAGE_MNT/usr/local/lib/node_modules/Haraka/config"
+	local _dest="$STAGE_MNT/usr/local/haraka/config"
+	echo "cp $_source/$1 $_dest/$1"
+	cp "$_source/$1" "$_dest/$1"
+}
+
 config_haraka_limit()
 {
 	tell_status "configuring limit plugin"
@@ -281,6 +301,7 @@ config_haraka_limit()
 		-e 's/^max_unrecognized_commands/limit/' \
 		"$HARAKA_CONF/plugins"
 
+	config_install_default limit.ini
 	sed -i .bak \
 		-e 's/^; max/max/' \
 		-e 's/^; history/history/' \
@@ -291,11 +312,15 @@ config_haraka_limit()
 
 config_haraka_dkim()
 {
-	sed -i .bak -e 's/^disabled = true/disabled = false/' \
-		"$HARAKA_CONF/dkim_sign.ini"
+	echo 'disabled=false' | tee -a "$HARAKA_CONF/dkim_sign.ini"
+	# sed -i .bak -e 's/^disabled = true/disabled = false/' \
+	# 	"$HARAKA_CONF/dkim_sign.ini"
 
-	_dkim_dir="$ZFS_JAIL_MNT/haraka/usr/local/haraka/config/dkim/$TOASTER_MAIL_DOMAIN"
-	if [ -d "$_dkim_dir" ]; then
+	mkdir -p "$HARAKA_CONF/dkim"
+	config_install_default "dkim/dkim_key_gen.sh"
+
+	_dkim_dir="$ZFS_JAIL_MNT/haraka/usr/local/haraka/config/dkim"
+	if [ -d "$_dkim_dir/$TOASTER_MAIL_DOMAIN" ]; then
 		tell_status "copying active DKIM keys"
 		cp -R "$_dkim_dir/" "$HARAKA_CONF/dkim/"
 		return
@@ -312,11 +337,22 @@ config_haraka_dkim()
 
 config_haraka_karma()
 {
-	sed -i .bak \
-		-e '/^dbid/ s/= 0/= 1/' \
-		-e "/^server_ip/ s/127.0.0.1/$(get_jail_ip redis)/" \
-		-e '/^plugins=/ s/clamd, //' \
-		"$HARAKA_CONF/karma.ini"
+	tell_status "configuring karma plugin"
+	# sed -i .bak \
+	# 	-e '/^dbid/ s/= 0/= 1/' \
+	# 	-e "/^server_ip/ s/127.0.0.1/$(get_jail_ip redis)/" \
+	# 	-e '/^plugins=/ s/clamd, //' \
+	# 	"$HARAKA_CONF/karma.ini"
+
+	echo "
+[redis]
+dbid=1
+server_ip=$(get_jail_ip redis)
+
+[deny_excludes]
+plugins=send_email, access, helo.checks, data.headers, mail_from.is_resolvable, avg, limit, attachment, tls
+" | tee -a "$HARAKA_CONF/karma.ini"
+
 }
 
 config_haraka_redis()
@@ -332,16 +368,23 @@ EO_REDIS_CONF
 }
 
 config_haraka_geoip() {
-	sed -i .bak \
-		-e '/^;[asn]/ s/^;//' \
-		-e '/^;report_as=/ s/^;//' \
-		"$HARAKA_CONF/connect.geoip.ini"
+	echo "calc_distance=true
+[asn]
+report_as=connect.asn
+" | tee -a "$HARAKA_CONF/connect.geoip.ini"
+
+	# sed -i .bak \
+	#   -e 's/^;calc_distance=false/calc_distance=true/' \
+	# 	-e '/^;[asn]/ s/^;//' \
+	# 	-e '/^;report_as=/ s/^;//' \
+	# 	"$HARAKA_CONF/connect.geoip.ini"
 }
 
 config_haraka_http()
 {
 	tell_status "enable Haraka HTTP server"
-	sed -i -e 's/; listen=\[::\]:80/listen=0.0.0.0:80/' "$HARAKA_CONF/http.ini"
+	echo "listen=0.0.0.0:80" | tee -a "$HARAKA_CONF/http.ini"
+	# sed -i -e 's/; listen=\[::\]:80/listen=0.0.0.0:80/' "$HARAKA_CONF/http.ini"
 }
 
 configure_haraka()
@@ -353,6 +396,7 @@ configure_haraka()
 	echo 'LOGINFO' > "$HARAKA_CONF/loglevel"
 	echo '3' > "$HARAKA_CONF/tarpit.timeout"
 
+	config_install_default plugins
 	config_haraka_smtp_ini
 	config_haraka_plugins
 	config_haraka_limit
@@ -361,7 +405,8 @@ configure_haraka()
 	config_haraka_qmail_deliverable
 	config_haraka_dnsbl
 
-	sed -i -e 's/^; reject=.*/reject=no/' "$HARAKA_CONF/data.headers.ini"
+	# sed -i -e 's/^; reject=.*/reject=no/' "$HARAKA_CONF/data.headers.ini"
+	echo "reject=no" | tee -a "$HARAKA_CONF/data.headers.ini"
 
 	config_haraka_http
 	config_haraka_tls
@@ -377,7 +422,6 @@ configure_haraka()
 	config_haraka_geoip
 
 	install_geoip_dbs
-	cleanup_deprecated_haraka
 }
 
 start_haraka()
