@@ -5,16 +5,16 @@ node_js:
 # services:
 #    - docker
 
-addons:
-  apt:
-    sources:
-    packages:
-      - shellcheck
+#addons:
+#  apt:
+#    sources:
+#    packages:
+#      - shellcheck
 
 before_install:
 #   - echo "deb http://archive.ubuntu.com/ubuntu/ wily universe" | sudo tee -a /etc/apt/sources.list
-#   - sudo apt-get update -qq
-#   - sudo apt-get install -y shellcheck
+    - sudo apt-get update -qq
+    - sudo apt-get install -y shellcheck
 #    - docker build -t tnpi/mt6:latest .
 #    - docker run -d --name mt6 tnpi/mt6:latest /
 
@@ -25,10 +25,10 @@ before_script:
 
 script:
    - sh -n *.sh
-   - sudo curl -Lso 
-       /usr/bin/shellcheck \
-           https://github.com/caarlos0/shellcheck-docker/releases/download/v0.4.3/shellcheck
-   - sudo chmod +x /usr/bin/shellcheck
+#  - sudo curl -Lso 
+#      /usr/bin/shellcheck \
+#          https://github.com/caarlos0/shellcheck-docker/releases/download/v0.4.3/shellcheck
+#  - sudo chmod +x /usr/bin/shellcheck
    - shellcheck -e SC2009,SC2086,SC2153,SC2016,SC1004,SC2119 *.sh
 
 # after_success:
