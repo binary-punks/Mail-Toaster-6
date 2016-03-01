@@ -7,6 +7,7 @@ export JAIL_START_EXTRA="devfs_ruleset=7"
 export JAIL_CONF_EXTRA="
 		devfs_ruleset = 7;"
 
+PREVIOUS_CONF="$ZFS_JAIL_MNT/haraka/usr/local/haraka/config"
 HARAKA_CONF="$STAGE_MNT/usr/local/haraka/config"
 
 haraka_github_updates() {
@@ -26,9 +27,10 @@ install_haraka()
 {
 	tell_status "installing node & npm"
 	stage_pkg_install node npm gmake || exit
+	#stage_exec make -C /usr/ports/www/npm install clean
 
 	tell_status "installing Haraka"
-	stage_exec npm install -g Haraka@2.8.0-alpha.5 ws express || exit
+	stage_exec npm install -g Haraka@2.8.0-alpha.6 ws express || exit
 
 	#haraka_github_updates
 }
@@ -91,25 +93,37 @@ config_haraka_syslog()
 {
 	tell_status "switch Haraka logging to syslog"
 	sed -i '' -e 's/# log.syslog$/log.syslog/' "$HARAKA_CONF/plugins"
-	# sed -i -e 's/^daemon_log_file=.*/daemon_log_file=\/dev\/null/' "$HARAKA_CONF/smtp.ini"
-	# sed -i -e 's/always_ok=false/always_ok=true/' "$HARAKA_CONF/log.syslog.ini"
-	echo 'always_ok=true' | tee -a  "$HARAKA_CONF/log.syslog.ini"
+
+	# send haraka logs to /dev/null
+	sed -i '' -e 's/^daemon_log_file=.*/daemon_log_file=\/dev\/null/' "$HARAKA_CONF/smtp.ini"
+
+	# don't write to daemon_log_file if syslog write was successful
+	echo "[general]
+always_ok=true" | tee -a  "$HARAKA_CONF/log.syslog.ini"
+}
+
+config_haraka_smtp_forward()
+{
+	tell_status "configure smtp forward to vpopmail jail"
+	if [ -f "$PREVIOUS_CONF/smtp_forward.ini" ]; then
+		tell_status "preserving existing smtp_forward.ini"
+		cp "$PREVIOUS_CONF/smtp_forward.ini" "$HARAKA_CONF/smtp_forward.ini"
+	else
+		echo "host=$(get_jail_ip vpopmail)
+port=25
+" | tee -a "$HARAKA_CONF/smtp_forward.ini"
+	fi
 }
 
 config_haraka_vpopmail()
 {
-	# tell_status "configure smtp forward to vpopmail jail"
-
-	# config_install_default smtp_forward.ini
-	# sed -i .bak \
-	# 	-e "s/^host=localhost/host=$(get_jail_ip vpopmail)/" \
-	# 	-e 's/^port=2555/port=25/' \
-	# 	"$HARAKA_CONF/smtp_forward.ini"
-	echo "host=$(get_jail_ip vpopmail)
-port=25" | tee -a "$HARAKA_CONF/smtp_forward.ini"
-
 	tell_status "config SMTP AUTH using vpopmaild"
-	echo "host=$(get_jail_ip vpopmail)" > "$HARAKA_CONF/auth_vpopmaild.ini"
+	if [ -f "$PREVIOUS_CONF/auth_vpopmaild.ini" ]; then
+		tell_status "preserving existing auth_vpopmaild.ini"
+		cp "$PREVIOUS_CONF/auth_vpopmaild.ini" "$HARAKA_CONF/auth_vpopmaild.ini"
+	else
+		echo "host=$(get_jail_ip vpopmail)" > "$HARAKA_CONF/auth_vpopmaild.ini"
+	fi
 
 	# shellcheck disable=1004
 	sed -i '' -e '/^# auth\/auth_ldap$/a\
@@ -120,8 +134,16 @@ auth\/auth_vpopmaild
 config_haraka_qmail_deliverable()
 {
 	tell_status "config recipient validation with Qmail::Deliverable"
-	config_install_default rcpt_to.qmail_deliverable.ini
-	sed -i '' -e "s/^host=127.0.0.1/host=$(get_jail_ip vpopmail)/" "$HARAKA_CONF/rcpt_to.qmail_deliverable.ini"
+	if [ -f "$PREVIOUS_CONF/rcpt_to.qmail_deliverable.ini" ]; then
+		tell_status "preserving existing rcpt_to.qmail_deliverable.ini"
+		cp "$PREVIOUS_CONF/rcpt_to.qmail_deliverable.ini" \
+		    "$HARAKA_CONF/rcpt_to.qmail_deliverable.ini"
+	else
+		echo "check_outbound=true
+host=$(get_jail_ip vpopmail)" | \
+		tee -a "$HARAKA_CONF/rcpt_to.qmail_deliverable.ini"
+	fi
+
 	sed -i .bak \
 		-e 's/^#rcpt_to.qmail_deliverable/rcpt_to.qmail_deliverable/' \
 		-e 's/^rcpt_to.in_host_list/# rcpt_to.in_host_list/' \
@@ -143,22 +165,21 @@ config_haraka_spamassassin()
 		return
 	fi
 
-	tell_status "configuring Haraka spamassassin plugin"
+	tell_status "enabling Haraka spamassassin plugin"
 	sed -i '' -e 's/^#spamassassin$/spamassassin/' "$HARAKA_CONF/plugins"
 
-	# sed -i.bak \
-	# 	-e "/^spamd_socket/ s/127.0.0.1:/$(get_jail_ip spamassassin):/" \
-	# 	-e 's/^;spamd_user=$/spamd_user=first-recipient/' \
-	# 	-e '/^; reject_threshold/ s/^; //' \
-	# 	-e 's/^; relay_reject_threshold$/relay_reject_threshold/' \
-	# 	"$HARAKA_CONF/spamassassin.ini"
-
-	echo "spamd_socket=$(get_jail_ip spamassassin):783
+	if [ -f "$PREVIOUS_CONF/spamassassin.ini" ]; then
+		tell_status "preserving existing spamassassin.ini"
+		cp "$PREVIOUS_CONF/spamassassin.ini" "$HARAKA_CONF/spamassassin.ini"
+	else
+		tell_status "configuring Haraka spamassassin plugin"
+		echo "spamd_socket=$(get_jail_ip spamassassin):783
+old_headers_action=rename
 spamd_user=first-recipient
 reject_threshold=10
 relay_reject_threshold=7
 " | tee -a "$HARAKA_CONF/spamassassin.ini"
-
+	fi
 }
 
 config_haraka_avg()
@@ -173,11 +194,6 @@ config_haraka_avg()
 
 	JAIL_CONF_EXTRA="$JAIL_CONF_EXTRA
 		mount += \"$ZFS_DATA_MNT/avg \$path/data/avg nullfs rw 0 0\";"
-
-	# sed -i .bak \
-	# 	-e "s/;host.*/host = $(get_jail_ip avg)/" \
-	# 	-e 's/;tmpdir.*/tmpdir=\/data\/avg/' \
-	# 	"$HARAKA_CONF/avg.ini"
 
 	echo "host = $(get_jail_ip avg)
 tmpdir=/data/avg
@@ -196,9 +212,24 @@ config_haraka_clamav()
 		return
 	fi
 
-	tell_status "configure Haraka clamav plugin"
-	echo "clamd_socket=$(get_jail_ip clamav):3310" >> "$HARAKA_CONF/clamd.ini"
+	tell_status "enabling Haraka clamav plugin"
 	sed -i '' -e 's/^#clamd$/clamd/' "$HARAKA_CONF/plugins"
+
+	tell_status "configure Haraka clamav plugin"
+	echo "clamd_socket=$(get_jail_ip clamav):3310
+
+[reject]
+virus=true
+error=false
+DetectBrokenExecutables=false
+Structured=false
+ArchiveBlockEncrypted=false
+PUA=false
+OLE2=false
+Safebrowsing=false
+UNOFFICIAL=false
+Phishing=false
+" | tee -a "$HARAKA_CONF/clamd.ini"
 }
 
 config_haraka_tls() {
@@ -211,19 +242,11 @@ config_haraka_tls() {
 config_haraka_dnsbl()
 {
 	tell_status "configuring dnsbls"
-	echo 'reject=0' > "$HARAKA_CONF/dnsbl.ini"
-	echo 'periodic_checks=30' >> "$HARAKA_CONF/dnsbl.ini"
-
-	echo "; zen.spamhaus.org
-b.barracudacentral.org
-truncate.gbudb.net
-cbl.abuseat.org
-psbl.surriel.com
-bl.spamcop.net
-dnsbl-1.uceprotect.net
-pbl.spamhaus.org
-xbl.spamhaus.org
-" | tee "$HARAKA_CONF/dnsbl.zones"
+	echo 'reject=false
+search=all
+enable_stats=false
+zones=b.barracudacentral.org, truncate.gbudb.net, psbl.surriel.com, bl.spamcop.net, dnsbl-1.uceprotect.net, zen.spamhaus.org, dnsbl.sorbs.net, dnsbl.justspam.org, bad.psky.me
+' | tee -a "$HARAKA_CONF/dnsbl.ini"
 }
 
 config_haraka_rspamd()
@@ -234,11 +257,6 @@ config_haraka_rspamd()
 	fi
 
 	tell_status "configure Haraka rspamd plugin"
-	# sed -i .bak \
-	# 	-e "s/;host.*/host = $(get_jail_ip rspamd)/" \
-	# 	-e 's/;always_add_headers = false/always_add_headers = true/' \
-	# 	"$HARAKA_CONF/rspamd.ini" || exit
-
 	echo "host = $(get_jail_ip rspamd)
 always_add_headers = true
 " | tee -a "$HARAKA_CONF/rspamd.ini" || exit
@@ -313,17 +331,13 @@ config_haraka_limit()
 config_haraka_dkim()
 {
 	echo 'disabled=false' | tee -a "$HARAKA_CONF/dkim_sign.ini"
-	# sed -i .bak -e 's/^disabled = true/disabled = false/' \
-	# 	"$HARAKA_CONF/dkim_sign.ini"
 
 	mkdir -p "$HARAKA_CONF/dkim"
 	config_install_default "dkim/dkim_key_gen.sh"
 
-	_dkim_dir="$ZFS_JAIL_MNT/haraka/usr/local/haraka/config/dkim"
-	if [ -d "$_dkim_dir/$TOASTER_MAIL_DOMAIN" ]; then
+	if [ -d "$PREVIOUS_CONF/dkim" ]; then
 		tell_status "copying active DKIM keys"
-		cp -R "$_dkim_dir/" "$HARAKA_CONF/dkim/"
-		return
+		cp -R "$PREVIOUS_CONF/dkim/" "$HARAKA_CONF/dkim/"
 	else
 		tell_status "generating DKIM keys"
 		cd "$HARAKA_CONF/dkim" || exit
@@ -337,13 +351,13 @@ config_haraka_dkim()
 
 config_haraka_karma()
 {
-	tell_status "configuring karma plugin"
-	# sed -i .bak \
-	# 	-e '/^dbid/ s/= 0/= 1/' \
-	# 	-e "/^server_ip/ s/127.0.0.1/$(get_jail_ip redis)/" \
-	# 	-e '/^plugins=/ s/clamd, //' \
-	# 	"$HARAKA_CONF/karma.ini"
+	if [ -d "$PREVIOUS_CONF/karma.ini" ]; then
+		tell_status "preserving karma.ini"
+		cp "$PREVIOUS_CONF/karma.ini" "$HARAKA_CONF/karma.ini"
+		return
+	fi
 
+	tell_status "configuring karma plugin"
 	echo "
 [redis]
 dbid=1
@@ -372,19 +386,12 @@ config_haraka_geoip() {
 [asn]
 report_as=connect.asn
 " | tee -a "$HARAKA_CONF/connect.geoip.ini"
-
-	# sed -i .bak \
-	#   -e 's/^;calc_distance=false/calc_distance=true/' \
-	# 	-e '/^;[asn]/ s/^;//' \
-	# 	-e '/^;report_as=/ s/^;//' \
-	# 	"$HARAKA_CONF/connect.geoip.ini"
 }
 
 config_haraka_http()
 {
 	tell_status "enable Haraka HTTP server"
 	echo "listen=0.0.0.0:80" | tee -a "$HARAKA_CONF/http.ini"
-	# sed -i -e 's/; listen=\[::\]:80/listen=0.0.0.0:80/' "$HARAKA_CONF/http.ini"
 }
 
 configure_haraka()
@@ -402,10 +409,10 @@ configure_haraka()
 	config_haraka_limit
 	config_haraka_syslog
 	config_haraka_vpopmail
+	config_haraka_smtp_forward
 	config_haraka_qmail_deliverable
 	config_haraka_dnsbl
 
-	# sed -i -e 's/^; reject=.*/reject=no/' "$HARAKA_CONF/data.headers.ini"
 	echo "reject=no" | tee -a "$HARAKA_CONF/data.headers.ini"
 
 	config_haraka_http
