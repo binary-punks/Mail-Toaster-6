@@ -7,9 +7,9 @@ node_js:
 
 addons:
   apt:
-    sources:
     packages:
       - shellcheck
+    sources:
 
 before_install:
 #   - echo "deb http://archive.ubuntu.com/ubuntu/ wily universe" | sudo tee -a /etc/apt/sources.list
@@ -35,6 +35,7 @@ script:
 # after_failure:
 after_script:
 
+sudo: false
 # required until the apt addon shellcheck is available
 #sudo: required
 #dist: trusty
