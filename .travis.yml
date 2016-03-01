@@ -36,7 +36,7 @@ script:
 after_script:
 
 # required until the apt addon shellcheck is available
-sudo: required
-dist: precise
-os:
-  - linux
+#sudo: required
+#dist: trusty
+#os:
+#  - linux
