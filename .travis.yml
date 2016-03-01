@@ -5,11 +5,11 @@ node_js:
 # services:
 #    - docker
 
-#addons:
-#  apt:
-#    sources:
-#    packages:
-#      - shellcheck
+addons:
+  apt:
+    sources:
+    packages:
+      - shellcheck
 
 before_install:
 #   - echo "deb http://archive.ubuntu.com/ubuntu/ wily universe" | sudo tee -a /etc/apt/sources.list
@@ -22,13 +22,13 @@ install:
     - test -f mail-toaster.sh
 
 before_script:
+#  - sudo curl -Lso \
+#      /usr/bin/shellcheck \
+#          https://github.com/caarlos0/shellcheck-docker/releases/download/v0.4.3/shellcheck
+#  - sudo chmod +x /usr/bin/shellcheck
 
 script:
    - sh -n *.sh
-   - sudo curl -Lso 
-       /usr/bin/shellcheck \
-           https://github.com/caarlos0/shellcheck-docker/releases/download/v0.4.3/shellcheck
-   - sudo chmod +x /usr/bin/shellcheck
    - shellcheck -e SC2009,SC2086,SC2153,SC2016,SC1004,SC2119 *.sh
 
 # after_success:
@@ -37,6 +37,6 @@ after_script:
 
 # required until the apt addon shellcheck is available
 sudo: required
-#dist: trusty
+dist: precise
 os:
   - linux
