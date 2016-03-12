@@ -15,7 +15,7 @@ install_haraka()
 	stage_pkg_install node npm gmake || exit
 
 	tell_status "installing Haraka"
-	stage_exec npm install -g Haraka ws express || exit
+	stage_exec npm install -g Haraka ws express haraka-constants address-rfc2821 || exit
 
 	tell_status "updating files from GitHub repo"
 	local _ghi="$STAGE_MNT/usr/local/lib/node_modules/Haraka"
@@ -181,7 +181,7 @@ config_haraka_clamav()
 	sed -i -e 's/^#clamd$/clamd/' "$HARAKA_CONF/plugins"
 }
 
-config_haraka_tls() {	
+config_haraka_tls() {
 	tell_status "enable TLS encryption"
 	sed -i -e 's/^# tls$/tls/' "$HARAKA_CONF/plugins"
 	cp /etc/ssl/certs/server.crt "$HARAKA_CONF/tls_cert.pem"
